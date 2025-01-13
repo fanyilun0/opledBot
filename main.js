@@ -35,13 +35,14 @@ function readFile(pathFile) {
 
 const sleep = (min, max) => {
     const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+    log.info(`Sleeping for ${delay} seconds`);
     return new Promise(resolve => setTimeout(resolve, delay));
 };
 
 const DELAYS = {
     TOKEN: [1000, 3000],
     USER_INFO: [2000, 5000],
-    CLAIM: [3000, 8000],
+    CLAIM: [6000, 18000],
 };
 
 const newAgent = (proxy = null) => {
@@ -369,7 +370,7 @@ const main = async () => {
                     } catch (error) {
                         log.error(`Error fetching claim details for Account ${index + 1}: ${error.message || 'unknown error'}`);
                     }
-                }, 60 * 60 * 1000); // Fetch claim details every 60 minutes
+                }, 8 * 60 * 60 * 1000); // Fetch claim details every 60 minutes
 
             } catch (error) {
                 log.error(`Failed to start WebSocket client for Account ${index + 1}:`, error.message || 'unknown error');
