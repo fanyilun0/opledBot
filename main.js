@@ -33,6 +33,17 @@ function readFile(pathFile) {
     }
 }
 
+const sleep = (min, max) => {
+    const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+    return new Promise(resolve => setTimeout(resolve, delay));
+};
+
+const DELAYS = {
+    TOKEN: [1000, 3000],
+    USER_INFO: [2000, 5000],
+    CLAIM: [3000, 8000],
+};
+
 const newAgent = (proxy = null) => {
     if (proxy && proxy.startsWith('http://')) {
         return new HttpsProxyAgent(proxy);
@@ -185,6 +196,7 @@ axiosRetry(axios, {
 });
 
 async function generateToken(data, proxy) {
+    await sleep(...DELAYS.TOKEN);
     const agent = newAgent(proxy);
     try {
         const response = await axios.post('https://apitn.openledger.xyz/api/v1/auth/generate_token', data, {
@@ -202,6 +214,7 @@ async function generateToken(data, proxy) {
 }
 
 async function getUserInfo(token, proxy, index) {
+    await sleep(...DELAYS.USER_INFO);
     const agent = newAgent(proxy);
     try {
         const response = await axios.get('https://rewardstn.openledger.xyz/api/v1/reward_realtime', {
@@ -228,6 +241,7 @@ async function getUserInfo(token, proxy, index) {
 }
 
 async function getClaimDetails(token, proxy, index) {
+    await sleep(...DELAYS.CLAIM);
     const agent = newAgent(proxy);
     try {
         const response = await axios.get('https://rewardstn.openledger.xyz/api/v1/claim_details', {
@@ -248,6 +262,7 @@ async function getClaimDetails(token, proxy, index) {
 }
 
 async function claimRewards(token, proxy, index) {
+    await sleep(...DELAYS.CLAIM);
     const agent = newAgent(proxy);
     try {
         const response = await axios.get('https://rewardstn.openledger.xyz/api/v1/claim_reward', {
@@ -384,4 +399,4 @@ const main = async () => {
 };
 
 //run
-main();
+main()
