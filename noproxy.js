@@ -2,10 +2,8 @@ import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import WebSocket from 'ws';
 import crypto from 'crypto';
-import { HttpsProxyAgent } from 'https-proxy-agent';
-import { SocksProxyAgent } from 'socks-proxy-agent';
 import fs from 'fs';
-import banner from './utils/banner.js';
+import mandiDulu from './utils/banner.js';
 import log from './utils/logger.js';
 
 
@@ -18,7 +16,6 @@ const headers = {
     "Sec-Ch-Ua-Mobile": "?0",
     "Sec-Ch-Ua-Platform": '"Windows"',
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Origin": "chrome-extension://ekbbplmjjgoobhdlffmgeokalelnmjjc"
 }
 
 function readFile(pathFile) {
@@ -34,36 +31,14 @@ function readFile(pathFile) {
     }
 }
 
-const sleep = (min, max) => {
-    const delay = Math.floor(Math.random() * (max - min + 1)) + min;
-    log.info(`Sleeping for ${delay} seconds`);
-    return new Promise(resolve => setTimeout(resolve, delay));
-};
-
-const DELAYS = {
-    TOKEN: [1000, 3000],
-    USER_INFO: [2000, 5000],
-    CLAIM: [6000, 18000],
-};
-
-const newAgent = (proxy = null) => {
-    if (proxy && proxy.startsWith('http://')) {
-        return new HttpsProxyAgent(proxy);
-    } else if (proxy && (proxy.startsWith('socks4://') || proxy.startsWith('socks5://'))) {
-        return new SocksProxyAgent(proxy);
-    }
-    return null;
-};
-
 class WebSocketClient {
-    constructor(authToken, address, proxy, index) {
+    constructor(authToken, address, index) {
         this.url = `wss://apitn.openledger.xyz/ws/v1/orch?authToken=${authToken}`;
         this.ws = null;
         this.reconnect = true
         this.index = index
         this.intervalId = null
         this.registered = false;
-        this.proxy = proxy;
         this.address = address;
         this.identity = btoa(address);
         this.capacity = generateRandomCapacity();
@@ -121,9 +96,7 @@ class WebSocketClient {
     };
 
     connect() {
-        const agent = newAgent(this.proxy);
-        const options = agent ? { agent } : {};
-        this.ws = new WebSocket(this.url, options);
+        this.ws = new WebSocket(this.url);
 
         this.ws.on('open', (type) => {
             log.info(`WebSocket connection established for account ${this.index}`);
@@ -197,35 +170,28 @@ axiosRetry(axios, {
     retryCondition: (error) => error.response?.status >= 400 || error.code === 'ECONNABORTED'
 });
 
-async function generateToken(data, proxy) {
-    await sleep(...DELAYS.TOKEN);
-    const agent = newAgent(proxy);
+async function generateToken(data) {
     try {
         const response = await axios.post('https://apitn.openledger.xyz/api/v1/auth/generate_token', data, {
             headers: {
                 ...headers,
                 'Content-Type': 'application/json',
             },
-            httpsAgent: agent,
-            httpAgent: agent
         });
         return response.data.data;
     } catch (error) {
+        log.error(`Error generating token:`, error.response?.statusText || error.message);
         return null;
     }
 }
 
-async function getUserInfo(token, proxy, index) {
-    await sleep(...DELAYS.USER_INFO);
-    const agent = newAgent(proxy);
+async function getUserInfo(token, index) {
     try {
         const response = await axios.get('https://rewardstn.openledger.xyz/api/v1/reward_realtime', {
             headers: {
                 ...headers,
                 'Authorization': 'Bearer ' + token
             },
-            httpsAgent: agent,
-            httpAgent: agent
         });
         const { total_heartbeats } = response?.data?.data[0] || { total_heartbeats: '0' };
         log.info(`Account ${index} has gained points today:`, { PointsToday: total_heartbeats });
@@ -242,17 +208,13 @@ async function getUserInfo(token, proxy, index) {
     }
 }
 
-async function getClaimDetails(token, proxy, index) {
-    await sleep(...DELAYS.CLAIM);
-    const agent = newAgent(proxy);
+async function getClaimDetails(token, index) {
     try {
         const response = await axios.get('https://rewardstn.openledger.xyz/api/v1/claim_details', {
             headers: {
                 ...headers,
                 'Authorization': 'Bearer ' + token
             },
-            httpsAgent: agent,
-            httpAgent: agent
         });
         const { tier, dailyPoint, claimed, nextClaim = 'Not Claimed' } = response?.data?.data || {};
         log.info(`Details for Account ${index}:`, { tier, dailyPoint, claimed, nextClaim });
@@ -263,17 +225,13 @@ async function getClaimDetails(token, proxy, index) {
     }
 }
 
-async function claimRewards(token, proxy, index) {
-    await sleep(...DELAYS.CLAIM);
-    const agent = newAgent(proxy);
+async function claimRewards(token, index) {
     try {
         const response = await axios.get('https://rewardstn.openledger.xyz/api/v1/claim_reward', {
             headers: {
                 ...headers,
                 'Authorization': 'Bearer ' + token
             },
-            httpsAgent: agent,
-            httpAgent: agent
         });
         log.info(`Daily Rewards Claimed for Account ${index}:`, response.data.data);
         return response.data.data;
@@ -298,7 +256,7 @@ function generateRandomCapacity() {
 
 // Main function
 const main = async () => {
-    log.info(banner);
+    log.info(mandiDulu)
     const wallets = readFile("wallets.txt")
 
     if (wallets.length === 0) {
@@ -306,48 +264,43 @@ const main = async () => {
         return;
     }
 
-    const proxies = readFile("proxy.txt");
-
     log.info(`Starting Program for all accounts:`, wallets.length);
 
     const accountsProcessing = wallets.map(async (address, index) => {
-        const proxy = proxies[index % proxies.length];
+
         let isConnected = false;
-
-
-        log.info(`Processing Account ${index + 1} with proxy: ${proxy || 'No proxy'}`);
-
         let claimDetailsInterval;
         let userInfoInterval;
 
-
         while (!isConnected) {
+
+            log.info(`Processing Account ${index + 1}`);
             try {
-                let response = await generateToken({ address }, proxy);
-                while (!response || !response.token) {
-                    log.error(`Failed to generate token for account ${index} retrying...`)
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    response = await generateToken({ address }, proxy);
+                const response = await generateToken({ address });
+                if (!response || !response.token) {
+                    log.error(`Failed to generate token for account ${index + 1} Retrying...`)
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    continue;
                 }
 
                 const token = response.token;
 
                 log.info(`login success for Account ${index + 1}:`, token.slice(0, 36) + "-" + token.slice(-24));
                 log.info(`Getting user info and claim details for account ${index + 1}...`);
-                const claimDaily = await getClaimDetails(token, proxy, index + 1);
+                const claimDaily = await getClaimDetails(token, index + 1);
                 if (claimDaily && !claimDaily.claimed) {
                     log.info(`Trying to Claim Daily rewards for Account ${index + 1}...`);
-                    await claimRewards(token, proxy, index + 1);
+                    await claimRewards(token, index + 1);
                 }
-                await getUserInfo(token, proxy, index + 1)
+                await getUserInfo(token, index + 1)
 
-                const socket = new WebSocketClient(token, address, proxy, index + 1);
+                const socket = new WebSocketClient(token, address, index + 1);
                 socket.connect();
                 isConnected = true;
 
                 userInfoInterval = setInterval(async () => {
                     log.info(`Fetching total points gained today for account ${index + 1}...`);
-                    const user = await getUserInfo(token, proxy, index + 1);
+                    const user = await getUserInfo(token, index + 1);
 
                     if (user === 'unauthorized') {
                         log.info(`Unauthorized: Token is invalid or expired for account ${index + 1}, reconnecting...`);
@@ -362,16 +315,16 @@ const main = async () => {
                 claimDetailsInterval = setInterval(async () => {
                     try {
                         log.info(`Checking Daily Rewards for Account ${index + 1}...`)
-                        const claimDetails = await getClaimDetails(token, proxy, index + 1);
+                        const claimDetails = await getClaimDetails(token, index + 1);
 
                         if (claimDetails && !claimDetails.claimed) {
                             log.info(`Trying to Claim Daily rewards for Account ${index + 1}...`);
-                            await claimRewards(token, proxy, index + 1);
+                            await claimRewards(token, index + 1);
                         }
                     } catch (error) {
                         log.error(`Error fetching claim details for Account ${index + 1}: ${error.message || 'unknown error'}`);
                     }
-                }, 8 * 60 * 60 * 1000); // Fetch claim details every 60 minutes
+                }, 60 * 60 * 1000); // Fetch claim details every 60 minutes
 
             } catch (error) {
                 log.error(`Failed to start WebSocket client for Account ${index + 1}:`, error.message || 'unknown error');
@@ -401,4 +354,4 @@ const main = async () => {
 };
 
 //run
-main()
+main();
